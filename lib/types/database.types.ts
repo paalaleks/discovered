@@ -47,6 +47,27 @@ export type Database = {
           }
         ];
       };
+      profiles: {
+        Row: {
+          avatar_url: string | null;
+          display_name: string | null;
+          id: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          avatar_url?: string | null;
+          display_name?: string | null;
+          id: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          avatar_url?: string | null;
+          display_name?: string | null;
+          id?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
       room_members: {
         Row: {
           joined_at: string;
@@ -69,6 +90,38 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "room_members_room_id_fkey";
+            columns: ["room_id"];
+            isOneToOne: false;
+            referencedRelation: "rooms";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      room_playlists: {
+        Row: {
+          added_at: string;
+          added_by: string | null;
+          id: string;
+          room_id: string;
+          spotify_playlist_id: string;
+        };
+        Insert: {
+          added_at?: string;
+          added_by?: string | null;
+          id?: string;
+          room_id: string;
+          spotify_playlist_id: string;
+        };
+        Update: {
+          added_at?: string;
+          added_by?: string | null;
+          id?: string;
+          room_id?: string;
+          spotify_playlist_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "room_playlists_room_id_fkey";
             columns: ["room_id"];
             isOneToOne: false;
             referencedRelation: "rooms";
@@ -105,7 +158,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      delete_message: {
+        Args: { message_id: number };
+        Returns: undefined;
+      };
     };
     Enums: {
       room_role: "DJ" | "member";

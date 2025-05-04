@@ -14,7 +14,7 @@ import {
  * Renders the main header navigation for the application.
  * Uses Suspense to handle loading states of user-specific components.
  */
-export function Header() {
+export function Nav() {
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 sm:px-8">
       <div className="container flex h-14 max-w-screen-2xl items-center">

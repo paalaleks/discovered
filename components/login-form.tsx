@@ -29,7 +29,8 @@ export function LoginForm({
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "spotify",
         options: {
-          scopes: "user-read-email user-read-private",
+          scopes:
+            "user-read-email user-read-private, streaming, user-modify-playback-state, user-read-playback-state, playlist-modify-public, user-library-read, user-library-modify",
           redirectTo: `${window.location.origin}/auth/oauth?next=/rooms`,
         },
       });

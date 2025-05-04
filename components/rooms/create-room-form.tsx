@@ -17,7 +17,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { createRoom } from "@/app/(protected)/rooms/actions"; // Import the Server Action
+import { createRoom } from "@/lib/actions/supabase.actions"; // Import the Server Action
 import { toast } from "sonner"; // Assuming sonner for toasts
 // Re-use or import Zod schema if possible, but define here for clarity
 const formSchema = z.object({

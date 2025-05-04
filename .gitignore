@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+.jest-cache/
+*.snap
 
 # next.js
 /.next/
@@ -45,3 +47,6 @@ ai/
 
 #cursor
 .cursor
+
+# supabase
+/supabase

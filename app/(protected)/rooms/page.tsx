@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CreateRoomForm } from "@/components/rooms/create-room-form";
 import { Toaster } from "@/components/ui/sonner";
-import { getUserRooms } from "./actions"; // Import the new server action
+import { getUserRooms } from "../../../lib/actions/supabase.actions"; // Import the new server action
 import { Button } from "@/components/ui/button";
 import {
   Card,
