@@ -26,13 +26,9 @@ import {
 import { VerticalVolumeControl } from "./vertical-volume-control";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { usePlayerContext } from "@/lib/contexts/player-context";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+
 import { SimplePlaylistDetails } from "@/lib/types/index";
+import MarqueeText from "./ui/marquee-text";
 
 // Remove props interface
 // interface PlayerPopoverProps {
@@ -69,12 +65,14 @@ export default function PlayerPopover() {
     isCurrentPlaylistFollowed,
     saveCurrentTrack,
     followCurrentPlaylist,
+    position,
+    handleSeekChange,
+    handleSeekCommit,
   } = usePlayerContext();
 
   // Local UI state derived from playbackState or for controls
   const [volume, setVolume] = useState(50); // Local volume 0-100 for slider
   const [isMuted, setIsMuted] = useState(false);
-  const [position, setPosition] = useState(0); // Track position in ms
   const [duration, setDuration] = useState(0); // Track duration in ms
 
   const [isVolumePopoverOpen, setIsVolumePopoverOpen] = useState(false);
@@ -82,19 +80,19 @@ export default function PlayerPopover() {
   // Keep local shuffle state for immediate UI feedback, synced from context
   const [isShuffleActive, setIsShuffleActive] = useState(false);
 
-  // Sync local state from context playbackState
+  // Use derived state for checking if playing
+  const isPlayingDerived = playbackState ? !playbackState.paused : false;
+
+  // Effect to sync local UI state from context playbackState
   useEffect(() => {
     if (!playbackState) {
-      // Reset local state derived from playbackState
-      setPosition(0);
       setDuration(0);
-      setIsShuffleActive(false); // Reset shuffle state too
+      setIsShuffleActive(false);
       return;
     }
-    // Don't sync isPlaying locally, use isPlayingDerived
-    setPosition(playbackState.position);
+
+    // Sync duration and shuffle state directly from playbackState
     setDuration(playbackState.duration);
-    // Sync local shuffle state from context
     setIsShuffleActive(playbackState.shuffle ?? false);
   }, [playbackState]);
 
@@ -139,9 +137,9 @@ export default function PlayerPopover() {
 
   // --- UI Logic ---
   const VolumeIcon = isMuted ? VolumeX : Volume2;
-  const currentPositionStr = formatDuration(position);
+  const displayPositionStr = formatDuration(position);
   const totalDurationStr = formatDuration(duration);
-  const progressPercent = duration > 0 ? (position / duration) * 100 : 0;
+  const displayProgressPercent = duration > 0 ? (position / duration) * 100 : 0;
 
   // Use currentTrack from context for track details
   const trackName = currentTrack?.name ?? "Track Name Placeholder";
@@ -164,10 +162,8 @@ export default function PlayerPopover() {
   const canGoNextPlaylist = currentPlaylistIndex < roomPlaylists.length - 1;
   const canGoPrevPlaylist = currentPlaylistIndex > 0;
 
-  const isPlayingDerived = playbackState ? !playbackState.paused : false;
-
   return (
-    <div className="grid gap-4 w-80 p-4">
+    <div className="flex flex-col gap-4 p-4 w-full">
       {/* Status Indicator uses isPlayerReady, isPlayerActive from context */}
       <div className="flex items-center justify-center text-xs text-muted-foreground mb-2">
         {isPlayerReady ? (
@@ -198,85 +194,63 @@ export default function PlayerPopover() {
             <Music className="h-8 w-8 text-muted-foreground" />
           </AvatarFallback>
         </Avatar>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate" title={trackName}>
-            {trackName}
-          </p>
-          <p
-            className="text-xs text-muted-foreground truncate"
+        <div className="min-w-0 group">
+          <MarqueeText
+            text={trackName}
+            className="font-semibold text-sm"
+            title={trackName}
+            pauseOnHover
+            animationDuration={trackName.length > 60 ? 20 : 10}
+          />
+          <MarqueeText
+            text={artistName}
+            className="text-xs text-muted-foreground"
             title={artistName}
-          >
-            {artistName}
-          </p>
-          <p
-            className="text-xs text-muted-foreground truncate flex items-center gap-1"
-            title={currentPlaylistName}
-          >
-            <ListMusic className="h-3 w-3" />
-            {isLoadingPlaylists ? "Loading..." : currentPlaylistName}
-          </p>
+            pauseOnHover
+            animationDuration={artistName.length > 40 ? 15 : 10}
+          />
+          <div className="flex items-center gap-1 text-xs text-muted-foreground group">
+            <ListMusic className="h-3 w-3 flex-shrink-0" />
+            <MarqueeText
+              text={isLoadingPlaylists ? "Loading..." : currentPlaylistName}
+              className="flex-1"
+              title={currentPlaylistName}
+              pauseOnHover
+              animationDuration={currentPlaylistName.length > 30 ? 15 : 10}
+            />
+          </div>
         </div>
       </div>
 
       {/* Playback Controls use isPlayerReady, isPlayerActive from context */}
-      <div className="flex items-center justify-center gap-2">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`rounded-full ${
-                  isShuffleActive ? "text-primary" : ""
-                }`}
-                onClick={togglePlayerShuffle}
-                disabled={
-                  !isPlayerReady || !isPlayerActive || isTogglingShuffle
-                }
-                title={isShuffleActive ? "Disable Shuffle" : "Enable Shuffle"}
-              >
-                {isTogglingShuffle ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Shuffle
-                    className={`h-4 w-4 ${
-                      isShuffleActive ? "text-primary" : ""
-                    }`}
-                  />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Toggle Shuffle ({isShuffleActive ? "On" : "Off"})</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-                onClick={skipToPreviousTrack}
-                disabled={(() => {
-                  const isDisabled =
-                    !isPlayerReady ||
-                    !isPlayerActive ||
-                    !playbackState ||
-                    playbackState?.disallows.skipping_prev;
-                  return isDisabled;
-                })()}
-                title="Previous Track"
-              >
-                <SkipBack className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Previous track</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+      <div className="flex items-center justify-center gap-2 w-72">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`rounded-full ${!isShuffleActive ? "opacity-50" : ""}`}
+          onClick={togglePlayerShuffle}
+          disabled={!isPlayerReady || isTogglingShuffle}
+        >
+          <Shuffle className="h-5 w-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full"
+          onClick={skipToPreviousTrack}
+          disabled={(() => {
+            const isDisabled =
+              !isPlayerReady ||
+              !isPlayerActive ||
+              !playbackState ||
+              playbackState?.disallows.skipping_prev;
+            return isDisabled;
+          })()}
+          title="Previous Track"
+        >
+          <SkipBack className="h-5 w-5" />
+        </Button>
+
         <Button
           variant="default"
           size="icon"
@@ -291,76 +265,60 @@ export default function PlayerPopover() {
             <Play className="h-6 w-6 fill-current" />
           )}
         </Button>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-                onClick={skipToNextTrack}
-                disabled={
-                  !isPlayerReady ||
-                  !isPlayerActive ||
-                  !playbackState ||
-                  playbackState?.disallows.skipping_next
-                }
-                title="Next Track"
-              >
-                <SkipForward className="h-5 w-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Next track</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`rounded-full w-8 h-8 ${
-                  isCurrentTrackSaved ? "text-green-500" : ""
-                }`}
-                onClick={saveCurrentTrack}
-                disabled={!currentTrack || isSavingTrack}
-                title={
-                  isCurrentTrackSaved
-                    ? "Saved to Liked Songs"
-                    : "Save to Liked Songs"
-                }
-              >
-                {isSavingTrack ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Heart
-                    className={`h-4 w-4 ${
-                      isCurrentTrackSaved ? "fill-green-500" : ""
-                    }`}
-                  />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{isCurrentTrackSaved ? "Saved" : "Save Song"}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full"
+          onClick={skipToNextTrack}
+          disabled={
+            !isPlayerReady ||
+            !isPlayerActive ||
+            !playbackState ||
+            playbackState?.disallows.skipping_next
+          }
+          title="Next Track"
+        >
+          <SkipForward className="h-5 w-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`rounded-full w-8 h-8 ${
+            isCurrentTrackSaved ? "text-green-500" : ""
+          }`}
+          onClick={saveCurrentTrack}
+          disabled={!currentTrack || isSavingTrack}
+          title={
+            isCurrentTrackSaved ? "Saved to Liked Songs" : "Save to Liked Songs"
+          }
+        >
+          {isSavingTrack ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Heart
+              className={`h-4 w-4 ${
+                isCurrentTrackSaved ? "fill-green-500" : ""
+              }`}
+            />
+          )}
+        </Button>
       </div>
 
       {/* Progress Bar uses local state synced from context */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 w-72">
         <span className="text-xs text-muted-foreground w-8 text-right">
-          {currentPositionStr}
+          {displayPositionStr}
         </span>
         <Slider
-          value={[progressPercent]} // Display progress, disable seeking
+          value={[displayProgressPercent]}
           max={100}
-          step={1}
+          step={0.1}
           className="flex-1 [&>span:first-child]:bg-primary"
-          disabled={true} // Seeking not implemented
+          disabled={
+            !isPlayerReady || !isPlayerActive || duration <= 0 || !playbackState
+          }
+          onValueChange={handleSeekChange}
+          onValueCommit={handleSeekCommit}
           aria-label="Track progress"
         />
         <span className="text-xs text-muted-foreground w-8 text-left">
@@ -390,7 +348,7 @@ export default function PlayerPopover() {
           )}
           Prev
         </Button>
-        <div className="flex justify-center">
+        <div className="px-2">
           <Popover
             open={isVolumePopoverOpen}
             onOpenChange={setIsVolumePopoverOpen}
@@ -421,41 +379,27 @@ export default function PlayerPopover() {
             </PopoverContent>
           </Popover>
         </div>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`rounded-full h-7 w-7 ${
-                  isCurrentPlaylistFollowed ? "text-green-500" : ""
-                }`}
-                onClick={followCurrentPlaylist}
-                disabled={isFollowingPlaylist || isCurrentPlaylistFollowed}
-                title={
-                  isCurrentPlaylistFollowed
-                    ? "Playlist Followed"
-                    : "Follow Playlist"
-                }
-              >
-                {isFollowingPlaylist ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : isCurrentPlaylistFollowed ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                {isCurrentPlaylistFollowed
-                  ? "Playlist Followed"
-                  : "Follow Playlist"}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`rounded-full h-7 w-7 ${
+            isCurrentPlaylistFollowed ? "text-green-500" : ""
+          }`}
+          onClick={followCurrentPlaylist}
+          disabled={isFollowingPlaylist || isCurrentPlaylistFollowed}
+          title={
+            isCurrentPlaylistFollowed ? "Playlist Followed" : "Follow Playlist"
+          }
+        >
+          {isFollowingPlaylist ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : isCurrentPlaylistFollowed ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <Plus className="h-4 w-4" />
+          )}
+        </Button>
+
         <Button
           variant="ghost"
           size="sm"

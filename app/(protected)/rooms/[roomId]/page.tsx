@@ -6,6 +6,8 @@ import type { ChatMessage } from "@/lib/types";
 // import { CopyInviteButton } from "@/components/rooms/copy-invite-button"; // Removed unused import
 import { RoomJoinHandler } from "@/components/rooms/room-join-handler"; // Import the join handler
 import { RealtimeChat } from "@/components/realtime-chat"; // Import Chat Component
+import { NavProtected } from "@/components/nav-protected";
+import PlayerTrigger from "@/components/player-trigger";
 // import { RealtimeAvatarStack } from "@/components/realtime-avatar-stack"; // Removed unused import
 // Import Button component later when needed
 
@@ -165,26 +167,27 @@ export default async function RoomPage({ params }: RoomPageProps) {
   // We have confirmed user and room exist by this point
   const currentUserId = userId;
 
-  // <<< Add Log >>>
-  console.log(
-    `[RoomPage Server] Rendering with roomId: ${room?.id}, userId: ${currentUserId}`
-  );
-
   return (
     // Apply flex column layout and min screen height to the main container
-    <div className="container mx-auto flex flex-col">
-      {/* <header className="p-6 flex items-center justify-between bg-secondary">
-        {room?.id ? (
-          <RealtimeAvatarStack roomName={room.name || room.id} />
-        ) : (
-          <div className="text-sm text-muted-foreground">Loading users...</div>
-        )}
-      </header> */}
+    <div className="mx-auto flex flex-col relative z-20 h-screen">
+      <NavProtected>
+        <PlayerTrigger />
+      </NavProtected>
+
+      {/* Gradient Overlay: Starts from the bottom of NavProtected and fades down */}
+      <div
+        className="absolute left-0 right-0 top-14
+                   bg-gradient-to-b from-teal-dark to-transparent
+                   h-24
+                   z-40
+                   pointer-events-none"
+      />
+
       {/* RoomJoinHandler might also need room.id, ensure it's available */}
       {room && <RoomJoinHandler roomId={room.id} userId={userId} />}
 
       {/* Make the main content area grow and establish a flex context for the grid */}
-      <main className="">
+      <main className="flex-grow pt-14 w-full">
         {/* Ensure the chat column takes full height */}
         {/* Conditionally render RealtimeChat only when room.id and currentUserId are valid */}
         {room?.id && currentUserId ? (

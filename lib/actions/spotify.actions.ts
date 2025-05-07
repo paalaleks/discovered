@@ -28,7 +28,6 @@ export type SpotifyTokenResult =
  * @returns {Promise<SpotifyTokenResult>} An object containing token information or an error.
  */
 export async function getSpotifyAccessToken(): Promise<SpotifyTokenResult> {
-  console.log("Server Action: getSpotifyAccessToken called");
   try {
     const supabase = await createClient();
     const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -53,9 +52,6 @@ export async function getSpotifyAccessToken(): Promise<SpotifyTokenResult> {
     const nowInSeconds = Math.floor(Date.now() / 1000);
     // Check if expired (add a 60-second buffer)
     if (expiresAtTimestamp && expiresAtTimestamp < nowInSeconds + 60) {
-      console.log(
-        `getSpotifyAccessToken: Token expired or expiring soon (Expires: ${expiresAtTimestamp}, Now: ${nowInSeconds}). Attempting refresh.`
-      );
       if (!providerRefreshToken) {
         console.error(
           "getSpotifyAccessToken Error: Token expired, but no refresh token found."
@@ -71,7 +67,6 @@ export async function getSpotifyAccessToken(): Promise<SpotifyTokenResult> {
       );
 
       if (refreshedTokenInfo) {
-        console.log("getSpotifyAccessToken: Token refreshed successfully.");
         accessToken = refreshedTokenInfo.accessToken;
         const newExpiresAt = nowInSeconds + refreshedTokenInfo.expiresIn;
         expiresAtTimestamp = newExpiresAt; // Update local variable for return
@@ -95,19 +90,12 @@ export async function getSpotifyAccessToken(): Promise<SpotifyTokenResult> {
           // Or return an error? Let's return error for now to be safe.
           return { error: "Failed to save refreshed Spotify token." };
         }
-        console.log(
-          "getSpotifyAccessToken: User metadata updated with new token info."
-        );
       } else {
         console.error(
           "getSpotifyAccessToken Error: Refresh token attempt failed."
         );
         return { error: "Failed to refresh Spotify token. Please re-login." };
       }
-    } else {
-      console.log(
-        `getSpotifyAccessToken: Token is valid (Expires: ${expiresAtTimestamp}, Now: ${nowInSeconds}).`
-      );
     }
     // --- End Refresh Logic ---
 
@@ -118,7 +106,6 @@ export async function getSpotifyAccessToken(): Promise<SpotifyTokenResult> {
       return { error: "Could not retrieve Spotify access token." };
     }
 
-    console.log("getSpotifyAccessToken Result: Returning valid token info.");
     return {
       accessToken,
       expiresAt: expiresAtTimestamp,
@@ -145,7 +132,6 @@ export interface SpotifyRefreshedTokenInfo {
 export async function refreshSpotifyToken(
   providerRefreshToken: string
 ): Promise<SpotifyRefreshedTokenInfo | null> {
-  console.log("Server Action: refreshSpotifyToken called");
   if (!providerRefreshToken) {
     console.error("refreshSpotifyToken Error: Missing provider refresh token.");
     return null;
@@ -201,8 +187,6 @@ export async function refreshSpotifyToken(
       return null;
     }
 
-    console.log("refreshSpotifyToken Success: Token refreshed successfully.");
-
     return {
       accessToken: data.access_token,
       expiresIn: data.expires_in,
@@ -247,10 +231,6 @@ export async function startPlayback(
   contextUri?: string,
   positionMs?: number
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`Server Action: startPlayback called for device ${deviceId}`, {
-    contextUri,
-    positionMs,
-  });
   try {
     const tokenInfo = await getSpotifyAccessToken();
     if (!tokenInfo?.accessToken) {
@@ -291,7 +271,6 @@ export async function startPlayback(
     }
 
     // Spotify returns 204 No Content on success
-    console.log("startPlayback Success: Playback command sent.");
     return { success: true };
   } catch (error) {
     console.error("startPlayback Error: Unexpected error", error);
@@ -309,10 +288,6 @@ export async function toggleShuffle(
   shuffleState: boolean,
   deviceId?: string
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(
-    `Server Action: toggleShuffle called with state: ${shuffleState}`,
-    { deviceId }
-  );
   try {
     const tokenInfo = await getSpotifyAccessToken();
     if (!tokenInfo?.accessToken) {
@@ -343,7 +318,6 @@ export async function toggleShuffle(
     }
 
     // Spotify returns 204 No Content on success
-    console.log(`toggleShuffle Success: Shuffle state set to ${shuffleState}.`);
     return { success: true };
   } catch (error) {
     console.error("toggleShuffle Error: Unexpected error", error);
@@ -355,7 +329,6 @@ export async function toggleShuffle(
 export async function saveTrack(
   trackId: string
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`Server Action: saveTrack called for track ${trackId}`);
   if (!trackId) {
     return { success: false, error: "Track ID is required." };
   }
@@ -395,7 +368,6 @@ export async function saveTrack(
       return { success: false, error: userError };
     }
 
-    console.log(`saveTrack Success: Track ${trackId} saved.`);
     return { success: true };
   } catch (error) {
     console.error(
@@ -452,7 +424,6 @@ export async function followPlaylist(
 
     // Check for 200 OK (Success)
     if (response.status === 200) {
-      console.log(`Successfully followed playlist: ${playlistId}`);
       return { success: true };
     } else {
       // Handle errors (e.g., 401 Unauthorized, 403 Forbidden, 404 Not Found)
@@ -524,10 +495,7 @@ export async function checkTracksSaved(
     // Check for 200 OK
     if (response.status === 200) {
       const data: boolean[] = await response.json();
-      console.log(
-        `Check tracks saved result for IDs [${trackIds.join(", ")}]:`,
-        data
-      );
+
       // Ensure response is an array of booleans matching input length
       if (
         Array.isArray(data) &&
@@ -601,18 +569,52 @@ export async function checkPlaylistFollowed(
   // Note: Using a separate helper or including it here
   let userId: string | null = null;
   try {
-    const meResponse = await fetch("https://api.spotify.com/v1/me", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store", // Ensure we get the user ID reliably
-    });
-    if (meResponse.ok) {
-      const meData = await meResponse.json();
-      userId = meData.id;
-    } else {
-      throw new Error(
-        `Failed to get user ID: ${meResponse.status} ${meResponse.statusText}`
-      );
+    let meResponse: Response | null = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+    const retryDelayMs = 500;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      meResponse = await fetch("https://api.spotify.com/v1/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store", // Ensure we get the user ID reliably
+      });
+
+      // If successful or it's a non-retryable client error (4xx), break the loop
+      if (
+        meResponse.ok ||
+        (meResponse.status >= 400 && meResponse.status < 500)
+      ) {
+        break;
+      }
+
+      // If it's a server error (5xx) and we have attempts left, wait and retry
+      if (meResponse.status >= 500 && attempts < maxAttempts) {
+        console.warn(
+          `Spotify API /me Error (${meResponse.status}): Attempt ${attempts} failed. Retrying in ${retryDelayMs}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      } else if (meResponse.status >= 500) {
+        // Max attempts reached for server error
+        console.error(
+          `Spotify API /me Error (${meResponse.status}): Max retries reached.`
+        );
+        // Keep meResponse to throw the error outside the loop
+      }
     }
+
+    // Check the final response after the loop
+    if (!meResponse || !meResponse.ok) {
+      const statusText = meResponse
+        ? `${meResponse.status} ${meResponse.statusText}`
+        : "Unknown fetch error";
+      throw new Error(`Failed to get user ID: ${statusText}`);
+    }
+
+    // Process successful response
+    const meData = await meResponse.json();
+    userId = meData.id;
   } catch (error: unknown) {
     console.error("checkPlaylistFollowed Error: Failed to get user ID", error);
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -647,9 +649,6 @@ export async function checkPlaylistFollowed(
         data.length === 1 &&
         typeof data[0] === "boolean"
       ) {
-        console.log(
-          `Check playlist ${playlistId} followed status for user ${userId}: ${data[0]}`
-        );
         return { isFollowing: data[0] };
       } else {
         console.error(

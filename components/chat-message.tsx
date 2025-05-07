@@ -120,7 +120,7 @@ export const ChatMessageItem = ({
       className={cn(
         "relative max-w-xs sm:max-w-md md:max-w-lg rounded-lg px-3 py-2 text-sm group",
         {
-          "bg-primary text-primary-foreground": isOwnMessage,
+          "bg-accent": isOwnMessage,
           "bg-muted": !isOwnMessage,
           "rounded-tr-none": isOwnMessage && showHeader,
           "rounded-tl-none": !isOwnMessage && showHeader,
@@ -170,17 +170,23 @@ export const ChatMessageItem = ({
           </div>
         </div>
       ) : (
-        <p className="break-words whitespace-pre-wrap">{message.content}</p>
+        <p
+          className={cn(
+            "break-words whitespace-pre-wrap",
+            isOwnMessage && "text-accent-foreground"
+          )}
+        >
+          {message.content}
+        </p>
       )}
 
       {!isEditing && (
         <span
           className={cn(
-            "absolute bottom-0.5 text-[10px] text-muted-foreground/70 flex items-center gap-1",
-            isOwnMessage ? "left-1.5" : "right-1.5",
-            "group-hover:opacity-0 transition-opacity duration-150"
+            "absolute bottom-0.5 text-[10px] text-muted-foreground/70 flex items-center gap-1 whitespace-nowrap",
+            isOwnMessage ? "right-1" : "left-1"
           )}
-          style={{ bottom: "-1.2em" }}
+          style={{ bottom: "-1.3em" }}
           title={new Date(message.createdAt).toLocaleString()}
           suppressHydrationWarning={true}
         >

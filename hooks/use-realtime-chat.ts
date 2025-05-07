@@ -73,7 +73,6 @@ export const useRealtimeChat = ({
         user_id: userId,
         content: content,
       };
-      console.log("Attempting to insert message:", messageData);
 
       const { error } = await supabase.from("messages").insert(messageData);
 
@@ -143,9 +142,7 @@ export const useRealtimeChat = ({
       let originalUpdatedAt: string | undefined;
 
       // Perform optimistic update using functional setMessages
-      console.log(
-        `[useRealtimeChat] editMessage: Performing optimistic update for ${messageId}`
-      );
+
       setMessages((currentMessages) => {
         const messageIndex = currentMessages.findIndex(
           (msg) => msg.id === messageId
@@ -154,19 +151,13 @@ export const useRealtimeChat = ({
           console.warn(
             `[useRealtimeChat] editMessage: Message ${messageId} not found inside setMessages callback.`
           );
-          console.log(
-            "[useRealtimeChat] Current messages in state update:",
-            JSON.stringify(currentMessages.map((m) => m.id))
-          ); // Log just IDs for brevity
+
           // Don't update state if message not found
           return currentMessages;
         }
 
         const messageToUpdate = currentMessages[messageIndex];
         if (messageToUpdate.content === newContent.trim()) {
-          console.log(
-            `[useRealtimeChat] editMessage: Content for ${messageId} unchanged. Skipping update.`
-          );
           // No actual change, return current state but resolve promise later
           return currentMessages;
         }
@@ -199,9 +190,6 @@ export const useRealtimeChat = ({
       }
 
       try {
-        console.log(
-          `[useRealtimeChat] editMessage: Calling Supabase update for id ${messageIdAsNumber}`
-        );
         const { error } = await supabase
           .from("messages")
           .update({
@@ -216,9 +204,7 @@ export const useRealtimeChat = ({
             "[useRealtimeChat] editMessage: Error updating message in Supabase:",
             error
           );
-          console.log(
-            `[useRealtimeChat] editMessage: Reverting optimistic update for ${messageId} due to error.`
-          );
+
           // Revert optimistic update on failure using functional update
           setMessages((currentMessages) =>
             currentMessages
@@ -240,9 +226,6 @@ export const useRealtimeChat = ({
           throw error; // Re-throw error to indicate failure to the component
         }
 
-        console.log(
-          `[useRealtimeChat] editMessage: Supabase update successful for ${messageId}`
-        );
         // No need to update state here, optimistic update is already done
         // and Supabase broadcast should handle external updates
         return Promise.resolve(); // Indicate success
@@ -278,8 +261,6 @@ export const useRealtimeChat = ({
   );
 
   useEffect(() => {
-    console.log(`[useRealtimeChat Effect Start] roomId: ${roomId}`);
-
     if (!roomId) {
       console.log(
         "[useRealtimeChat Effect] Skipping setup: roomId is undefined/falsy."
@@ -287,12 +268,7 @@ export const useRealtimeChat = ({
       return;
     }
 
-    console.log(
-      `[useRealtimeChat Effect] Running with valid roomId: ${roomId}, userId: ${userId}`
-    );
-
     const channelName = `chat:${roomId}`;
-    console.log(`[useRealtimeChat Effect] Creating channel: ${channelName}`);
 
     channel.current = supabase
       .channel(channelName, {
@@ -310,8 +286,6 @@ export const useRealtimeChat = ({
           filter: `room_id=eq.${roomId}`,
         },
         async (payload) => {
-          console.log("Realtime payload received:", payload);
-
           if (payload.eventType === "INSERT") {
             const newMessage = payload.new as {
               id: number;
@@ -434,17 +408,17 @@ export const useRealtimeChat = ({
       )
       .on("presence", { event: "sync" }, () => {
         if (!channel.current) return;
-        const presenceState = channel.current.presenceState();
-        console.log("Presence sync:", presenceState);
+        channel.current.presenceState(); // Call is needed even if result isn't used
+        // console.log("Presence sync:", presenceState);
       })
-      .on("presence", { event: "join" }, ({ key, newPresences }) => {
-        console.log("Presence join:", key, newPresences);
+      .on("presence", { event: "join" }, () => {
+        // console.log("Presence join:", key, newPresences);
       })
-      .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
-        console.log("Presence leave:", key, leftPresences);
+      .on("presence", { event: "leave" }, () => {
+        // console.log("Presence leave:", key, leftPresences);
       })
       .subscribe((status) => {
-        console.log(`Realtime channel status for "${channelName}": ${status}`);
+        // console.log(`Realtime channel status for "${channelName}": ${status}`);
         if (status === "SUBSCRIBED") {
           setIsConnected(true);
           channel.current?.track({ user: username, user_id: userId });
@@ -455,14 +429,11 @@ export const useRealtimeChat = ({
 
     return () => {
       if (channel.current) {
-        console.log(
-          `[useRealtimeChat Cleanup] Leaving channel: ${channel.current.topic}`
-        );
         supabase.removeChannel(channel.current);
         channel.current = null;
       }
     };
-  }, [roomId, supabase, userId, username]);
+  }, [roomId, supabase, userId, username, updateLocalMessage]);
 
   return { messages, sendMessage, deleteMessage, editMessage, isConnected };
 };

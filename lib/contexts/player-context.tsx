@@ -23,6 +23,8 @@ import {
 } from "@/lib/actions/spotify.actions";
 import { toast } from "sonner";
 
+// Default values for when the player is not active/needed
+
 // Define the shape of the context state
 interface PlayerContextType {
   player: Spotify.Player | null;
@@ -50,6 +52,11 @@ interface PlayerContextType {
   skipToPreviousTrack: () => void;
   saveCurrentTrack: () => Promise<void>;
   followCurrentPlaylist: () => Promise<void>;
+  position: number;
+  duration: number;
+  isSeeking: boolean;
+  handleSeekChange: (value: number[]) => void;
+  handleSeekCommit: (value: number[]) => void;
 }
 
 // Create the context
@@ -62,8 +69,10 @@ export function PlayerContextProvider({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  // Reinstate specific check for actual room paths with IDs
+  const isRoomPath = /^\/rooms\/[a-fA-F0-9-]+$/.test(pathname);
 
-  // Player SDK State
+  // Call hook unconditionally, but pass flag to control initialization
   const {
     player,
     isReady: isPlayerReady,
@@ -71,7 +80,15 @@ export function PlayerContextProvider({
     isActive: isPlayerActive,
     currentTrack,
     playbackState,
-  } = useSpotifyPlayerSDK();
+    playerRef,
+  } = useSpotifyPlayerSDK({ initialize: isRoomPath }); // Pass initialization flag
+
+  // State for timer/seek logic
+  const [position, setPosition] = useState(0); // Track position in ms
+  const [duration, setDuration] = useState(0); // Track duration in ms
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPosition, setSeekPosition] = useState(0); // Target position during seek
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // State for room playlists
   const [roomPlaylists, setRoomPlaylists] = useState<SimplePlaylistDetails[]>(
@@ -97,10 +114,15 @@ export function PlayerContextProvider({
   useEffect(() => {
     const match = pathname.match(/\/rooms\/([a-fA-F0-9-]+)/);
     const roomIdFromPath = match ? match[1] : null;
-    if (roomIdFromPath !== currentRoomIdRef.current) {
+
+    // Clear state if room ID changes OR if we navigate away from a room path
+    if (roomIdFromPath !== currentRoomIdRef.current || !isRoomPath) {
+      console.log(
+        `[PlayerContext] Path changed. Path: ${pathname}, New Room ID: ${roomIdFromPath}, Is Room Path: ${isRoomPath}`
+      );
       setRoomPlaylists([]);
       setCurrentPlaylistIndex(0);
-      setIsLoadingPlaylists(true);
+      setIsLoadingPlaylists(isRoomPath); // Only set loading if it's a room path
       setIsChangingPlaylist(false);
       setIsTogglingShuffle(false);
       setIsSavingTrack(false);
@@ -110,10 +132,16 @@ export function PlayerContextProvider({
       setInitialPlaybackAttempted(false);
       currentRoomIdRef.current = roomIdFromPath;
       setOriginalTrackId(null);
+      // If we are not on a room path, ensure player state doesn't persist visually if needed
+      // (This might be handled by the conditional hook already, but explicit reset can be safer)
+      if (!isRoomPath) {
+          // Potentially dispatch actions or clear local state related to UI if needed
+      }
     }
-  }, [pathname]);
+  }, [pathname, isRoomPath]); // Add isRoomPath dependency
 
   // Effect to fetch playlists when player is ready and we have a room ID
+  // This effect should now only run meaningfully when isRoomPath is true due to hook logic
   useEffect(() => {
     const currentRoomId = currentRoomIdRef.current;
     if (
@@ -123,21 +151,22 @@ export function PlayerContextProvider({
       roomPlaylists.length === 0
     ) {
       const fetchPlaylists = async () => {
+      
         try {
           const fetchedPlaylists = await getRoomPlaylistDetails(currentRoomId);
           if (fetchedPlaylists) {
             setRoomPlaylists(fetchedPlaylists);
             setCurrentPlaylistIndex(0);
-
+            // Condition to start initial playback
             if (
               fetchedPlaylists.length > 0 &&
               playerDeviceId &&
-              !initialPlaybackAttempted &&
-              !playbackState
+              !initialPlaybackAttempted // Removed !playbackState check
             ) {
-              setInitialPlaybackAttempted(true);
+              setInitialPlaybackAttempted(true); // Mark attempt immediately
               const firstPlaylistUri = fetchedPlaylists[0]?.uri;
               if (firstPlaylistUri) {
+             
                 const result = await startPlayback(
                   playerDeviceId,
                   firstPlaylistUri
@@ -151,6 +180,9 @@ export function PlayerContextProvider({
                     `Failed to start initial playback: ${result.error}`
                   );
                 }
+              } else {
+                  console.error("[PlayerContext] Cannot start playback: First playlist URI is missing.");
+                  setInitialPlaybackAttempted(false); // Reset if URI was bad
               }
             }
           } else {
@@ -173,6 +205,7 @@ export function PlayerContextProvider({
     initialPlaybackAttempted,
     playbackState,
     roomPlaylists.length,
+    pathname,
   ]);
 
   // Effect to check saved/followed status when track or playlist changes
@@ -185,15 +218,11 @@ export function PlayerContextProvider({
 
     // Check Track Saved Status
     if (idToCheck) {
-      console.log(
-        `Checking saved status for track ID: ${idToCheck} (Playable: ${trackId}, Linked From: ${linkedFromId})`
-      );
       checkTracksSaved([idToCheck]).then((result) => {
         if (result.error) {
           console.error("Error checking track saved status:", result.error);
           setIsCurrentTrackSaved(false); // Assume not saved on error
         } else if (result.data) {
-          console.log(`Track ${idToCheck} saved status: ${result.data[0]}`);
           setIsCurrentTrackSaved(result.data[0] ?? false);
         }
       });
@@ -203,9 +232,6 @@ export function PlayerContextProvider({
 
     // Check Playlist Followed Status
     if (currentPlaylistSpotifyId) {
-      console.log(
-        `Checking followed status for playlist ID: ${currentPlaylistSpotifyId}`
-      );
       // Reset follow status immediately before checking, prevents stale state if check fails
       // Consider if this flicker is acceptable or if loading state is better
       // setIsCurrentPlaylistFollowed(false);
@@ -217,9 +243,6 @@ export function PlayerContextProvider({
           );
           setIsCurrentPlaylistFollowed(false); // Assume not followed on error
         } else if (result.isFollowing !== null) {
-          console.log(
-            `Playlist ${currentPlaylistSpotifyId} followed status: ${result.isFollowing}`
-          );
           setIsCurrentPlaylistFollowed(result.isFollowing);
         } else {
           // Handle case where isFollowing is null but no error (shouldn't happen with current action)
@@ -240,6 +263,65 @@ export function PlayerContextProvider({
     roomPlaylists,
     currentPlaylistIndex,
   ]); // Depend on track/playlist identifiers
+
+  // Effect to manage the track progress timer
+  useEffect(() => {
+    // Clear previous interval if playbackState changes or seeking starts
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // If playbackState exists, sync duration. Sync position only if not seeking.
+    if (playbackState) {
+      setDuration(playbackState.duration);
+      if (!isSeeking) {
+        setPosition(playbackState.position);
+      }
+
+      // If playing and not seeking, start the interval timer
+      if (!playbackState.paused && !isSeeking) {
+        intervalRef.current = setInterval(() => {
+          setPosition((prevPosition) => {
+            const newPosition = prevPosition + 1000;
+            // Ensure position doesn't exceed duration
+            return Math.min(newPosition, playbackState.duration);
+          });
+        }, 1000);
+      }
+    } else {
+      // Reset position and duration if no playback state
+      setPosition(0);
+      setDuration(0);
+    }
+
+    // Cleanup function to clear interval on unmount or dependency change
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [playbackState, isSeeking]); // Dependencies: state and seeking status
+
+  // Effect to automatically stop seeking if track changes or playback catches up
+  useEffect(() => {
+    if (!playbackState || !isSeeking) return;
+
+    const currentPlaybackPosition = playbackState.position;
+    const currentTrackId = playbackState.track_window.current_track.id;
+    const seekTargetTrackId = currentTrack?.id; // Track ID when seek started
+
+    // Stop seeking if:
+    // 1. The track has changed since the seek started.
+    // 2. The actual playback position is now very close to the seek target.
+    if (
+      currentTrackId !== seekTargetTrackId ||
+      Math.abs(currentPlaybackPosition - seekPosition) < 1000
+    ) {
+      setIsSeeking(false);
+    }
+  }, [playbackState, isSeeking, seekPosition, currentTrack?.id]);
 
   // --- Player Actions ---
 
@@ -323,25 +405,31 @@ export function PlayerContextProvider({
   }, [playbackState, isTogglingShuffle]);
 
   const togglePlayPause = useCallback(() => {
-    player
+    playerRef.current
       ?.togglePlay()
       .catch((err) => console.error("Error toggling play", err));
-  }, [player]);
+  }, [playerRef]);
 
   const skipToNextTrack = useCallback(() => {
-    player
+    playerRef.current
       ?.nextTrack()
       .catch((err) => console.error("Error skipping next", err));
-  }, [player]);
+  }, [playerRef]);
 
   const skipToPreviousTrack = useCallback(() => {
-    if (!player) {
+    if (!playerRef.current) {
+      console.warn("Attempted skip previous when playerRef is null.");
       return;
     }
-    player?.previousTrack().catch((err) => {
-      console.error("Error skipping previous track:", err);
+    playerRef.current?.previousTrack().catch((err) => {
+      if (err?.message?.includes("playable_item")) {
+          console.error("Spotify SDK Error (previousTrack):", err.message, err);
+          toast.error("Spotify playback error. Try again shortly.");
+      } else {
+          console.error("Error skipping previous track:", err);
+      }
     });
-  }, [player]);
+  }, [playerRef]);
 
   // Save Current Track Action
   const saveCurrentTrack = useCallback(async () => {
@@ -402,6 +490,46 @@ export function PlayerContextProvider({
     isCurrentPlaylistFollowed,
   ]);
 
+  // --- Seek Handlers ---
+  const handleSeekChange = useCallback(
+    (value: number[]) => {
+      if (!duration) return; // Don't allow seek if duration is 0
+      if (!isSeeking) setIsSeeking(true);
+      const newSeekPosition = Math.round((value[0] / 100) * duration);
+      // Update visual position immediately while dragging
+      setPosition(newSeekPosition);
+      setSeekPosition(newSeekPosition); // Store the target seek position
+    },
+    [duration, isSeeking] // Include isSeeking to ensure setIsSeeking(true) works
+  );
+
+  const handleSeekCommit = useCallback(
+    (value: number[]) => {
+      if (!player || !playbackState || !duration) {
+        setIsSeeking(false); // Ensure seeking is reset if commit fails early
+        return;
+      }
+
+      const finalPositionMs = Math.round((value[0] / 100) * duration);
+      // Set the final target position
+      setSeekPosition(finalPositionMs);
+      // Update the displayed position one last time
+      setPosition(finalPositionMs);
+      // Keep isSeeking true - the effect watching playbackState will set it false
+
+      player.seek(finalPositionMs).catch((err) => {
+        console.error("Error seeking track:", err);
+        toast.error("Failed to seek track.");
+        // If seek fails, revert seeking state immediately and resync position
+        setIsSeeking(false);
+        if (playbackState) {
+          setPosition(playbackState.position);
+        }
+      });
+    },
+    [player, playbackState, duration] // Dependencies for seek operation
+  );
+
   // Memoize the context value to prevent unnecessary re-renders
   const value = useMemo(
     () => ({
@@ -430,6 +558,11 @@ export function PlayerContextProvider({
       skipToPreviousTrack,
       saveCurrentTrack,
       followCurrentPlaylist,
+      position: isSeeking ? seekPosition : position,
+      duration,
+      isSeeking,
+      handleSeekChange,
+      handleSeekCommit,
     }),
     [
       player,
@@ -456,21 +589,40 @@ export function PlayerContextProvider({
       skipToPreviousTrack,
       saveCurrentTrack,
       followCurrentPlaylist,
+      position,
+      duration,
+      isSeeking,
+      seekPosition,
+      handleSeekChange,
+      handleSeekCommit,
     ]
   );
+
+  // Render provider only if it's a room path OR if player is active
+  // This prevents unnecessary context updates on non-room pages unless music is playing
+  if (!isRoomPath && !isPlayerActive) {
+    // Render children without the provider if not needed
+    // Or potentially provide a default/inactive context value
+    return <>{children}</>;
+  }
 
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
   );
 }
 
-// Create a custom hook for easy consumption
+// Custom hook to use the player context
 export function usePlayerContext() {
   const context = useContext(PlayerContext);
   if (context === undefined) {
-    throw new Error(
-      "usePlayerContext must be used within a PlayerContextProvider"
-    );
+    throw new Error("usePlayerContext must be used within a PlayerContextProvider");
+  }
+  // Check if the context value seems initialized (e.g., player exists or ready flag is set)
+  // This helps catch cases where the provider might have rendered null
+  // Adapt this check based on what signifies an 'active' context
+  if (context.player === undefined && !context.isPlayerReady && context.playerDeviceId === undefined) {
+      console.warn("[PlayerContext] Consumer is accessing context, but provider might not be active or initialized. Check conditional rendering.");
+      // Consider returning a default state or throwing a more specific error if this is unexpected
   }
   return context;
 }

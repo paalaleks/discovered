@@ -403,18 +403,19 @@ export async function getUserRoleInCurrentRoom(
 export async function getRoomPlaylistDetails(
   roomId: string
 ): Promise<SimplePlaylistDetails[] | null> {
-  console.log(`LOG: getRoomPlaylistDetails called with roomId: ${roomId}`); // Log entry
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError || !userData.user) {
-    console.error("LOG: getRoomPlaylistDetails - User not authenticated", userError);
+    console.error(
+      "LOG: getRoomPlaylistDetails - User not authenticated",
+      userError
+    );
     return null;
   }
 
   try {
     // 1. Fetch playlist IDs and names from your database
-    console.log(`LOG: getRoomPlaylistDetails - Fetching playlists from DB for room ${roomId}`); // Log DB query start
     const { data: roomPlaylists, error: dbError } = await supabase
       .from("room_playlists")
       .select("id, spotify_playlist_id, name")
@@ -422,70 +423,80 @@ export async function getRoomPlaylistDetails(
 
     // Log DB query result
     if (dbError) {
-      console.error(`LOG: getRoomPlaylistDetails - DB Error fetching playlists:`, dbError);
+      console.error(
+        `LOG: getRoomPlaylistDetails - DB Error fetching playlists:`,
+        dbError
+      );
       return null;
     }
-    console.log(`LOG: getRoomPlaylistDetails - DB Result for room ${roomId}:`, roomPlaylists);
 
     if (!roomPlaylists || roomPlaylists.length === 0) {
-      console.log(`LOG: getRoomPlaylistDetails - No playlists found in DB for room ${roomId}.`);
+      console.log(
+        `LOG: getRoomPlaylistDetails - No playlists found in DB for room ${roomId}.`
+      );
       return [];
     }
 
     // Define type for DB result explicitly
     type RoomPlaylistRecord = {
-        id: string;
-        spotify_playlist_id: string;
-        name: string | null;
+      id: string;
+      spotify_playlist_id: string;
+      name: string | null;
     };
 
     const dbPlaylistRecords = roomPlaylists as RoomPlaylistRecord[];
-    console.log(`LOG: getRoomPlaylistDetails - Found DB playlist IDs: ${dbPlaylistRecords.map(p => p.spotify_playlist_id).join(', ')}`); // Log found IDs
 
     // 2. Fetch details for each playlist from Spotify API
     let loggedFirstApiCall = false; // Flag to log only first API call attempt
-    const playlistDetailsPromises = dbPlaylistRecords.map(async (playlist: RoomPlaylistRecord) => {
-      if (!loggedFirstApiCall) {
-          console.log(`LOG: getRoomPlaylistDetails - Calling Spotify API getPlaylistDetails for ID: ${playlist.spotify_playlist_id}`);
+    const playlistDetailsPromises = dbPlaylistRecords.map(
+      async (playlist: RoomPlaylistRecord) => {
+        if (!loggedFirstApiCall) {
+          console.log(
+            `LOG: getRoomPlaylistDetails - Calling Spotify API getPlaylistDetails for ID: ${playlist.spotify_playlist_id}`
+          );
           loggedFirstApiCall = true;
-      }
-      const spotifyDetails: SpotifyPlaylist | null = await getPlaylistDetails(
-        playlist.spotify_playlist_id
-      );
-      // Log first Spotify API result
-      // if (loggedFirstApiCall && !loggedFirstApiResult) { // This logic is a bit complex, maybe simpler log later
-      //     console.log(`LOG: getRoomPlaylistDetails - Spotify API Result for ${playlist.spotify_playlist_id}:`, spotifyDetails);
-      //     loggedFirstApiResult = true;
-      // }
+        }
+        const spotifyDetails: SpotifyPlaylist | null = await getPlaylistDetails(
+          playlist.spotify_playlist_id
+        );
+        // Log first Spotify API result
+        // if (loggedFirstApiCall && !loggedFirstApiResult) { // This logic is a bit complex, maybe simpler log later
+        //     console.log(`LOG: getRoomPlaylistDetails - Spotify API Result for ${playlist.spotify_playlist_id}:`, spotifyDetails);
+        //     loggedFirstApiResult = true;
+        // }
 
-      // 3. Combine DB data and Spotify data, mapping fields correctly
-      if (spotifyDetails) {
-        return {
-          spotify_playlist_id: playlist.spotify_playlist_id,
-          name: playlist.name ?? spotifyDetails.name,
-          owner: spotifyDetails.owner?.display_name,
-          images: spotifyDetails.images,
-          uri: spotifyDetails.uri,
-        } as SimplePlaylistDetails;
-      } else {
-         console.warn(`LOG: getRoomPlaylistDetails - Failed to get Spotify details for ID: ${playlist.spotify_playlist_id}`); // Log Spotify failures
-        return {
-          spotify_playlist_id: playlist.spotify_playlist_id,
-          name: playlist.name ?? "Playlist not found",
-          owner: "Unknown",
-          images: [],
-          uri: undefined,
-        } as SimplePlaylistDetails;
+        // 3. Combine DB data and Spotify data, mapping fields correctly
+        if (spotifyDetails) {
+          return {
+            spotify_playlist_id: playlist.spotify_playlist_id,
+            name: playlist.name ?? spotifyDetails.name,
+            owner: spotifyDetails.owner?.display_name,
+            images: spotifyDetails.images,
+            uri: spotifyDetails.uri,
+          } as SimplePlaylistDetails;
+        } else {
+          console.warn(
+            `LOG: getRoomPlaylistDetails - Failed to get Spotify details for ID: ${playlist.spotify_playlist_id}`
+          ); // Log Spotify failures
+          return {
+            spotify_playlist_id: playlist.spotify_playlist_id,
+            name: playlist.name ?? "Playlist not found",
+            owner: "Unknown",
+            images: [],
+            uri: undefined,
+          } as SimplePlaylistDetails;
+        }
       }
-    });
+    );
 
     const combinedDetails = await Promise.all(playlistDetailsPromises);
-    console.log(`LOG: getRoomPlaylistDetails - Final combined details for room ${roomId}:`, combinedDetails); // Log final result
 
     return combinedDetails;
-
   } catch (error) {
-    console.error(`LOG: getRoomPlaylistDetails - Unexpected error for room ${roomId}:`, error);
+    console.error(
+      `LOG: getRoomPlaylistDetails - Unexpected error for room ${roomId}:`,
+      error
+    );
     return null;
   }
 }

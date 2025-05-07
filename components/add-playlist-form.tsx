@@ -3,8 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { useEffect, useRef } from "react";
-import { useFormState } from "react-dom";
+import { useEffect, useRef, useActionState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -42,8 +41,8 @@ export function AddPlaylistForm({
   });
 
   // Server Action state
-  const [state, formAction] = useFormState(addPlaylistToRoom, null);
-  // Ref to track the previous state reference - Use the inferred type from useFormState
+  const [state, formAction] = useActionState(addPlaylistToRoom, null);
+  // Ref to track the previous state reference - Use the inferred type from useActionState
   const prevStateRef = useRef<typeof state>(null);
 
   // Handle form submission feedback

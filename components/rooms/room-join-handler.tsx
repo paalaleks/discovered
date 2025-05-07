@@ -55,14 +55,7 @@ export function RoomJoinHandler({ roomId, userId }: RoomJoinHandlerProps) {
           if (insertError) {
             console.error("Error joining room:", insertError);
             // Potentially show a toast notification to the user here
-          } else {
-            console.log(
-              `User ${userId} successfully joined room ${roomId} as member.`
-            );
-            // Maybe trigger a re-fetch or rely on realtime updates?
           }
-        } else {
-          console.log(`User ${userId} is already a member of room ${roomId}.`);
         }
       } catch (error) {
         console.error("Unexpected error in joinRoomIfNeeded:", error);

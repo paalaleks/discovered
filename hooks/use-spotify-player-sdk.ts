@@ -36,7 +36,13 @@ interface SpotifyPlayerSDKHookState {
  * Hook to manage the Spotify Web Playback SDK instance and state,
  * including playback status updates.
  */
-export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
+export function useSpotifyPlayerSDK(options?: {
+  initialize?: boolean;
+}): SpotifyPlayerSDKHookState & {
+  playerRef: React.RefObject<SpotifyPlayer | null>;
+} {
+  const { initialize = true } = options ?? {}; // Default initialize to true
+
   const [player, setPlayer] = useState<SpotifyPlayer | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -60,9 +66,7 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
   // Function to initialize the player (extracted for re-use)
   const initializePlayer = useCallback((shouldConnect: boolean = true) => {
-    console.log("useSpotifyPlayerSDK: Initializing/Re-initializing Player...");
     if (isConnecting) {
-      console.log("useSpotifyPlayerSDK: Already connecting, skipping re-init.");
       return;
     }
 
@@ -80,9 +84,6 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
     // Clean up previous instance if exists
     if (playerRef.current) {
-      console.log(
-        "useSpotifyPlayerSDK: Disconnecting previous player instance."
-      );
       playerRef.current.disconnect();
       playerRef.current = null; // Clear the ref
       // Clear related state immediately
@@ -99,10 +100,6 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
     // Setup listeners for the new player instance
     const handleReady = (instance: SpotifyWebPlaybackInstance) => {
-      console.log(
-        "useSpotifyPlayerSDK: Player Ready with Device ID",
-        instance.device_id
-      );
       setPlayer(newPlayer);
       setIsReady(true);
       setDeviceId(instance.device_id);
@@ -110,11 +107,7 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
       setIsConnecting(false); // Connection successful
     };
 
-    const handleNotReady = (instance: SpotifyWebPlaybackInstance) => {
-      console.log(
-        "useSpotifyPlayerSDK: Player Device ID has gone offline",
-        instance.device_id
-      );
+    const handleNotReady = () => {
       setIsReady(false);
       setIsActive(false);
       setDeviceId(null);
@@ -124,13 +117,22 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
     const handleError = (error: SpotifyError) => {
       console.error(
         "useSpotifyPlayerSDK: Spotify Player Error Received.",
-        error
+        error // Log the raw error object first
       );
 
-      // Basic Error Logging (as implemented before)
-      if (error && typeof error === "object" && "message" in error) {
-        console.error("Error Message:", error.message);
+      // More robustly extract and log the message
+      let errorMessage = "Unknown Spotify Player Error";
+      if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+      ) {
+        errorMessage = error.message;
+      } else if (typeof error === "string") {
+        errorMessage = error; // Handle if error is just a string
       }
+      console.error("useSpotifyPlayerSDK: Error Message:", errorMessage);
 
       setIsReady(false);
       setIsActive(false);
@@ -138,13 +140,9 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
       setIsConnecting(false); // Ensure connecting flag is reset
 
       // Conditionally attempt reconnect based on error type
-      if (
-        error &&
-        typeof error === "object" &&
-        "message" in error &&
-        typeof error.message === "string"
-      ) {
-        const message = error.message.toLowerCase();
+      if (errorMessage) {
+        // Check using the extracted message
+        const message = errorMessage.toLowerCase();
         // Avoid reconnecting on persistent auth/account issues immediately
         if (
           message.includes("authentication failed") ||
@@ -156,21 +154,12 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
           // Surface this error more clearly to the user elsewhere?
         } else {
           // For other errors (e.g., initialization, playback), attempt reconnect after a delay
-          console.log(
-            "useSpotifyPlayerSDK: Attempting reconnect after error...",
-            error.message
-          );
-          // Use the ref to call the latest version of attemptReconnect
           attemptReconnectRef.current();
         }
       }
     };
 
     const handleStateChange = (state: SpotifyPlaybackState | null) => {
-      console.log(
-        "useSpotifyPlayerSDK: Player state changed",
-        state ?? "(null state)"
-      );
       setPlaybackState(state);
       setCurrentTrack(state?.track_window.current_track ?? null);
       setIsActive(!!state); // Active if state is not null
@@ -185,12 +174,8 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
     newPlayer.addListener("playback_error", handleError);
 
     if (shouldConnect) {
-      console.log("useSpotifyPlayerSDK: Connecting new player instance...");
       newPlayer.connect().then((success) => {
         if (success) {
-          console.log(
-            "useSpotifyPlayerSDK: The Web Playback SDK successfully connected!"
-          );
         } else {
           console.error(
             "useSpotifyPlayerSDK: The Web Playback SDK failed to connect."
@@ -210,8 +195,6 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
     }
     // Debounce reconnection slightly
     reconnectionAttemptRef.current = setTimeout(() => {
-      console.log("useSpotifyPlayerSDK: Attempting reconnection...");
-      // Re-initialize and connect
       initializePlayer(true);
     }, 500); // 500ms delay
   }, [initializePlayer]);
@@ -221,35 +204,22 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
     attemptReconnectRef.current = attemptReconnect;
   }, [attemptReconnect]);
 
-  const handleVisibilityChange = useCallback(() => {
-    const isHidden = document.hidden;
-    console.log(
-      `useSpotifyPlayerSDK: Visibility changed. Hidden: ${isHidden}. Online: ${navigator.onLine}`
-    );
-    if (!isHidden && navigator.onLine && !isReady && !isConnecting) {
-      console.log(
-        "useSpotifyPlayerSDK: Tab became visible, online, and player not ready. Triggering reconnect."
-      );
-      attemptReconnect();
-    }
-  }, [isReady, isConnecting, attemptReconnect]);
+  // const handleVisibilityChange = useCallback(() => {
+  // const isHidden = document.hidden; // No longer needed
+  // --- REMOVED RECONNECT LOGIC ---
+  // We no longer trigger reconnect solely based on tab visibility.
+  // Reconnection is handled by 'handleOnline' and SDK error events.
+  // We might still want to do something when hidden, e.g., pause?
+  // Or update some internal state if needed when visibility changes.
+  // }, []); // Removed dependencies as they are no longer used here
 
   const handleOnline = useCallback(() => {
-    console.log(
-      `useSpotifyPlayerSDK: Network came online. Visible: ${!document.hidden}`
-    );
-    // Only reconnect if tab is visible and player isn't ready/connecting
     if (!document.hidden && !isReady && !isConnecting) {
-      console.log(
-        "useSpotifyPlayerSDK: Network online and tab visible, player not ready. Triggering reconnect."
-      );
       attemptReconnect();
     }
   }, [isReady, isConnecting, attemptReconnect]);
 
   const handleOffline = useCallback(() => {
-    console.log("useSpotifyPlayerSDK: Network went offline.");
-    // Optionally force player state to inactive
     setIsActive(false);
     setIsReady(false); // Assume player is no longer ready
     setIsConnecting(false); // Stop any connection attempts
@@ -257,26 +227,13 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
   }, []);
 
   useEffect(() => {
-    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-    console.log("useSpotifyPlayerSDK: Added visibility/network listeners.");
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-      if (reconnectionAttemptRef.current) {
-        clearTimeout(reconnectionAttemptRef.current);
-      }
-      console.log("useSpotifyPlayerSDK: Removed visibility/network listeners.");
-    };
-  }, [handleVisibilityChange, handleOnline, handleOffline]);
+  }, [handleOnline, handleOffline]);
 
   // Implement getOAuthToken logic
   const getOAuthToken = useCallback(
     async (callback: (token: string) => void) => {
-      console.log("useSpotifyPlayerSDK: getOAuthToken called by SDK");
       let tokenInfo: Awaited<ReturnType<typeof getSpotifyAccessToken>> | null =
         null;
       let refreshedTokenInfo: Awaited<
@@ -285,13 +242,24 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
       // 1. Attempt to get current token info
       try {
+        console.log(
+          "useSpotifyPlayerSDK: Attempting to get access token info..."
+        );
         tokenInfo = await getSpotifyAccessToken();
+        console.log(
+          "useSpotifyPlayerSDK: Got token info:",
+          tokenInfo ? "Yes" : "No",
+          tokenInfo
+        );
       } catch (error) {
         console.error(
           "useSpotifyPlayerSDK: Network error fetching initial token info:",
           error
         );
         // If fetching token info fails entirely, we can't proceed.
+        console.log(
+          "useSpotifyPlayerSDK: Calling SDK callback with empty token due to fetch error."
+        );
         callback(""); // Indicate failure to SDK
         return;
       }
@@ -305,25 +273,30 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
       ) {
         needsRefresh = true;
       }
+      console.log(
+        "useSpotifyPlayerSDK: Needs refresh?",
+        needsRefresh,
+        "Refresh Token available?",
+        !!tokenInfo?.providerRefreshToken
+      );
 
       // 3. Attempt refresh if needed
       if (needsRefresh && tokenInfo?.providerRefreshToken) {
-        console.log(
-          "useSpotifyPlayerSDK: Access token missing or expired, attempting refresh."
-        );
+        console.log("useSpotifyPlayerSDK: Attempting token refresh...");
         try {
           refreshedTokenInfo = await refreshSpotifyToken(
             tokenInfo.providerRefreshToken
           );
           if (refreshedTokenInfo?.accessToken) {
             console.log(
-              "useSpotifyPlayerSDK: Token refreshed successfully for SDK."
+              "useSpotifyPlayerSDK: Token refresh successful. Calling SDK callback with refreshed token."
             );
             callback(refreshedTokenInfo.accessToken);
             return;
           } else {
             console.error(
-              "useSpotifyPlayerSDK: Refresh attempt failed, no access token returned."
+              "useSpotifyPlayerSDK: Refresh attempt failed, no access token returned.",
+              refreshedTokenInfo
             );
             // Fall through to potentially use stale token if available
           }
@@ -338,17 +311,22 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
       // 4. Provide best available token (refreshed, original, or indicate failure)
       if (refreshedTokenInfo?.accessToken) {
-        // This case should ideally be handled within the try block above,
-        // but included for completeness if fall-through logic changes.
+        // This case should technically be handled above, but added for completeness
+        console.log(
+          "useSpotifyPlayerSDK: Calling SDK callback with refreshed token (fallback check)."
+        );
         callback(refreshedTokenInfo.accessToken);
       } else if (tokenInfo?.accessToken) {
+        // Check expiry again just in case, though SDK might handle it
+        const isExpired =
+          tokenInfo.expiresAt && Date.now() / 1000 > tokenInfo.expiresAt;
         console.log(
-          "useSpotifyPlayerSDK: Providing original (potentially stale) access token to SDK."
+          `useSpotifyPlayerSDK: Calling SDK callback with existing token (Expired: ${isExpired}).`
         );
         callback(tokenInfo.accessToken);
       } else {
         console.error(
-          "useSpotifyPlayerSDK: No valid access token available after get/refresh attempts."
+          "useSpotifyPlayerSDK: No valid access token available after get/refresh attempts. Calling SDK callback with empty token."
         );
         callback(""); // Indicate failure to SDK
       }
@@ -363,40 +341,94 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
 
   // SDK Initialization Effect (runs only once on initial mount)
   useEffect(() => {
-    console.log("useSpotifyPlayerSDK: Initial mount effect running...");
-
-    // Check if the SDK script has loaded
-    if (window.Spotify) {
-      console.log("useSpotifyPlayerSDK: Spotify SDK already loaded.");
-      initializePlayer();
-    } else {
+    // Only run initialization logic if the initialize flag is true
+    if (!initialize) {
+      // If not initializing, ensure any existing player is disconnected and state is reset
       console.log(
-        "useSpotifyPlayerSDK: Spotify SDK not loaded yet, waiting..."
-      );
+        "useSpotifyPlayerSDK: initialize is false. Checking if player exists.",
+        { exists: !!playerRef.current }
+      ); // Added Log
+      if (playerRef.current) {
+        console.log(
+          "useSpotifyPlayerSDK: Player exists. Disconnecting player due to initialize=false"
+        );
+        try {
+          playerRef.current.disconnect();
+          console.log("useSpotifyPlayerSDK: Disconnect called successfully."); // Added Log
+        } catch (error) {
+          console.error("useSpotifyPlayerSDK: Error during disconnect:", error); // Added Log
+        }
+        playerRef.current = null;
+        setPlayer(null);
+        setIsReady(false);
+        setDeviceId(null);
+        setIsActive(false);
+        setCurrentTrack(null);
+        setPlaybackState(null);
+        if (reconnectionAttemptRef.current) {
+          clearTimeout(reconnectionAttemptRef.current);
+        }
+      }
+      return; // Exit early if initialize is false
+    }
+
+    // Define the OAuth callback function
+    getOAuthTokenRef.current = (cb) => {
+      getOAuthToken(cb).catch((error) => {
+        console.error(
+          "useSpotifyPlayerSDK: Error in getOAuthToken callback:",
+          error
+        );
+        // Handle token fetch error - maybe set an error state?
+      });
+    };
+
+    // Check if the SDK script is already loaded
+    if (window.Spotify && window.Spotify.Player) {
+      console.log("useSpotifyPlayerSDK: SDK script already loaded.");
+      if (!playerRef.current && !isConnecting) {
+        initializePlayer();
+      }
+    } else {
+      console.log("useSpotifyPlayerSDK: SDK script not loaded, attaching...");
       // Define the global callback
       window.onSpotifyWebPlaybackSDKReady = () => {
-        console.log(
-          "useSpotifyPlayerSDK: onSpotifyWebPlaybackSDKReady called."
+        console.log("useSpotifyPlayerSDK: SDK script loaded via callback.");
+        if (!playerRef.current && !isConnecting) {
+          initializePlayer();
+        }
+      };
+
+      // Inject the script
+      const script = document.createElement("script");
+      script.src = "https://sdk.scdn.co/spotify-player.js";
+      script.async = true;
+      script.onerror = () => {
+        console.error(
+          "useSpotifyPlayerSDK: Failed to load Spotify SDK script."
         );
-        initializePlayer();
+        // Handle script load failure
+      };
+      document.body.appendChild(script);
+
+      // Cleanup function for script tag
+      return () => {
+        const existingScript = document.querySelector(
+          'script[src="https://sdk.scdn.co/spotify-player.js"]'
+        );
+        if (existingScript) {
+          // Optional: Consider removing the script tag on cleanup
+          // document.body.removeChild(existingScript);
+          // console.log("useSpotifyPlayerSDK: Cleaned up SDK script tag.");
+        }
+        // Clear the global callback
+        window.onSpotifyWebPlaybackSDKReady = () => {};
       };
     }
 
-    // Cleanup function to disconnect player on component unmount
-    return () => {
-      if (playerRef.current) {
-        console.log(
-          "useSpotifyPlayerSDK: Disconnecting player on component unmount."
-        );
-        playerRef.current.disconnect();
-        playerRef.current = null;
-      }
-      if (reconnectionAttemptRef.current) {
-        clearTimeout(reconnectionAttemptRef.current);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array ensures this runs only once on mount
+    // No script cleanup needed if already loaded
+    return undefined;
+  }, [initialize, initializePlayer, isConnecting]); // Add initialize and isConnecting dependency
 
   return {
     player,
@@ -405,5 +437,6 @@ export function useSpotifyPlayerSDK(): SpotifyPlayerSDKHookState {
     isActive,
     currentTrack,
     playbackState,
+    playerRef,
   };
 }
